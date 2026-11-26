@@ -1044,11 +1044,14 @@ let esVoice=null;
 function pickVoice(){try{const vs=window.speechSynthesis?speechSynthesis.getVoices():[];esVoice=vs.find(v=>/^es(-|_)ES/i.test(v.lang))||vs.find(v=>/^es/i.test(v.lang))||null}catch(e){}}
 try{if(window.speechSynthesis){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}}catch(e){}
 const audioOk=()=>!!tts||!!(window.speechSynthesis&&window.SpeechSynthesisUtterance);
-function speakEs(text,slow){
-  if(tts){tts.speak(text.slice(0,2000),{language:"es",rate:slow?0.75:0.95}).catch(()=>browserSpeak(text,slow));return}
-  browserSpeak(text,slow);
-}
-function browserSpeak(text,slow){try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang="es-ES";if(esVoice)u.voice=esVoice;u.rate=slow?0.75:0.95;speechSynthesis.speak(u)}catch(e){}}
+const RATES=[[0.6,"Sehr langsam"],[0.75,"Langsam"],[0.9,"Normal"]];
+const curRate=()=>state.settings.rate||0.75;
+let speakState="idle";
+function speakEs(text){browserSpeak(text,curRate())}
+function browserSpeak(text,rate){try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang="es-ES";if(esVoice)u.voice=esVoice;u.rate=rate;u.onend=u.onerror=()=>{speakState="idle";updAudio()};speakState="playing";speechSynthesis.speak(u);updAudio()}catch(e){speakState="idle"}}
+function stopSpeak(){try{speechSynthesis.cancel()}catch(e){}speakState="idle";updAudio()}
+function pauseSpeak(){try{if(speakState==="playing"){speechSynthesis.pause();speakState="paused"}else if(speakState==="paused"){speechSynthesis.resume();speakState="playing"}}catch(e){}updAudio()}
+function updAudio(){const b=document.getElementById("pauseBtn"),st=document.getElementById("stopBtn");if(b){b.disabled=speakState==="idle";b.textContent=speakState==="paused"?"▶ Weiter":"❚❚ Pause"}if(st)st.disabled=speakState==="idle"}
 
 /* ---------- sounds and combo ---------- */
 let actx=null;
@@ -1092,7 +1095,9 @@ function vHoeren(){
   <div class="row between"><h2>${esc(t.title)}</h2><span class="pill">${esc(t.topic)}</span></div>
   ${whatBox("hoeren","alle 4 Aussagen richtig")}
   <div class="card stack" style="align-items:center;text-align:center">
-   ${audioOk()?`<div class="row" style="justify-content:center"><button class="primary big" data-play="0">▶ Anhören</button><button data-play="1">Langsam</button></div><span class="small muted num">${s.plays||0}× gehört</span>`:`<p class="small">Audio geht in dieser Ansicht nicht. Öffne die App im Browser (Safari oder Chrome).</p>`}
+   ${audioOk()?`<div class="row" style="justify-content:center"><button class="primary big" data-play="0">▶ Von vorn anhören</button><button id="pauseBtn" data-pausesp ${speakState==="idle"?"disabled":""}>${speakState==="paused"?"▶ Weiter":"❚❚ Pause"}</button><button id="stopBtn" data-stopsp ${speakState==="idle"?"disabled":""}>■ Stopp</button></div>
+   <div class="seg" role="group" aria-label="Tempo">${RATES.map(([r,l])=>`<button data-rate="${r}" aria-pressed="${curRate()===r}">${l}</button>`).join("")}</div>
+   <span class="small muted num">${s.plays||0}× gehört</span>`:`<p class="small">Audio geht in dieser Ansicht nicht. Öffne die App im Browser (Safari oder Chrome).</p>`}
   </div>
   <div class="card stack"><div class="row between"><h3>Verdadero o falso</h3><span class="pill num">${ok} / ${t.rf.length}</span></div>
    ${t.rf.map((r,i)=>{const a=x.rf[i];const done=a!=null;const good=a===r[1];return `<div class="stack" style="gap:6px"><p>${i+1}. ${tapWords(r[0])}</p><div class="row">${[true,false].map(v=>{let st="";if(done&&a===v)st=good?' style="border-color:var(--ok);background:var(--ok-bg)"':' style="border-color:var(--bad);background:var(--bad-bg)"';return `<button data-hrf="${i}:${v?1:0}" ${done&&good?"disabled":""}${st}>${v?"Verdadero":"Falso"}</button>`}).join("")}</div>${done&&!good?`<span class="small" style="color:var(--bad)">Falsch, nochmal hören</span>`:""}</div>`}).join("")}
@@ -1156,6 +1161,7 @@ let view="heute", sub=null;
 const TABS=[["heute","Heute"],["karten","Karten"],["ueben","Üben"],["texte","Texte"],["plan","Fortschritt"]];
 function busyView(){return !!(sub&&sub.active)}
 function go(target){
+  if(speakState!=="idle")stopSpeak();
   const [a,b,c]=String(target).split(":");
   sub=null;
   if(a==="karten"){view="karten";if(b==="more"){state.newCount[todayKey()]=(state.newCount[todayKey()]||0)-5;touch("prog")}startCards(b==="today"?"today":b==="wrong"?"wrong":b==="extra")}
@@ -1653,9 +1659,9 @@ document.addEventListener("click",ev=>{
   const pop=document.getElementById("wordPop"); if(pop&&!pop.hidden&&!ev.target.closest("#wordPop")) pop.hidden=true;
   const b=ev.target.closest("button,[data-tab]"); if(!b) return;
   const d=b.dataset;
-  if(d.tab){sub=null;view=d.tab;if(view==="karten")startCards(false);try{history.replaceState(null,"","#"+view)}catch(e){}render();window.scrollTo(0,0);return}
+  if(d.tab){if(speakState!=="idle")stopSpeak();sub=null;view=d.tab;if(view==="karten")startCards(false);try{history.replaceState(null,"","#"+view)}catch(e){}render();window.scrollTo(0,0);return}
   if(d.go!=null){go(d.go);return}
-  if(d.back!=null){sub=null;render();return}
+  if(d.back!=null){if(speakState!=="idle")stopSpeak();sub=null;render();return}
   if(d.speak!=null){speak(d.speak);return}
   if(d.ch){const i=document.getElementById("ansIn")||document.getElementById("typeIn");if(i&&!i.disabled){const p=i.selectionStart??i.value.length;i.value=i.value.slice(0,p)+d.ch+i.value.slice(i.selectionEnd??p);i.focus();i.setSelectionRange(p+1,p+1);if(sub)sub.typed=i.value}return}
   if(d.reveal!=null){reveal();return}
@@ -1679,11 +1685,14 @@ document.addEventListener("click",ev=>{
   if(d.showtr!=null){sub.showTr=true;render();return}
   if(d.pick!=null){if(sub.res){const it=sub.items[sub.queue[0]];showOpt(it.mc[Number(d.pick)]);return}quizCheck(Number(d.pick));return}
   if(d.qnext!=null){quizNext();return}
-  if(d.play!=null){const t=HOEREN.find(x=>x.id===sub.id);sub.plays=(sub.plays||0)+1;speakEs(t.text,d.play==="1");const el=b.parentElement&&b.parentElement.nextElementSibling;if(el)el.textContent=sub.plays+"× gehört";return}
+  if(d.play!=null){const t=HOEREN.find(x=>x.id===sub.id);sub.plays=(sub.plays||0)+1;speakEs(t.text);render();return}
+  if(d.pausesp!=null){pauseSpeak();return}
+  if(d.stopsp!=null){stopSpeak();return}
+  if(d.rate){const r=Number(d.rate);state.settings.rate=r;touch("prog");if(speakState!=="idle"&&sub&&sub.kind==="hoeren"){const t=HOEREN.find(x=>x.id===sub.id);speakEs(t.text)}render();return}
   if(d.hrf){const [i,v]=d.hrf.split(":");const t=HOEREN.find(x=>x.id===sub.id);const x=hz(t.id);x.rf[i]=v==="1";const ok=x.rf[i]===t.rf[i][1];hit(ok);if(!ok)errWrong("h|"+t.id+"|"+i);hoerenUpdate();render();return}
   if(d.showtext!=null){sub.showText=true;render();return}
   if(d.hreset!=null){const x=hz(sub.id);x.rf={};sub.showText=false;sub.plays=0;touch("prog");render();return}
-  if(d.say!=null){speakEs(d.say,false);return}
+  if(d.say!=null){speakEs(d.say);return}
   if(d.frageshow!=null){sub.shown=true;render();return}
   if(d.frage!=null){rateFrage(d.frage==="1");return}
   if(d.spoke){
