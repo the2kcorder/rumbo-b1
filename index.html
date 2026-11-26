@@ -48,7 +48,8 @@ textarea{min-height:240px;resize:vertical;line-height:1.55}
 .sync{font-size:.75rem;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap;flex:none;max-width:45%;overflow:hidden;padding-top:6px}
 .sync span:last-child{overflow:hidden;text-overflow:ellipsis}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}
-.dot.on{background:var(--ok)} .dot.busy{background:var(--sun)}
+.dot.on{background:var(--ok)}
+.sync.ok{color:var(--ok);font-weight:600} .dot.busy{background:var(--sun)}
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:center;padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
 nav.tabs .in{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;width:100%;max-width:760px}
 nav.tabs button{border:none;background:transparent;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:.72rem;font-weight:600;color:var(--muted);padding:6px 2px;min-height:52px}
@@ -609,7 +610,7 @@ function today(){const k=todayKey();if(!state.days[k]) state.days[k]={done:[],se
 
 /* ---------- sync (db) ---------- */
 let db=null, uid=null, refs=null; const dirty={prog:false,srs:false}; let timer=null, writing=false, slowTimer=null;
-function setSync(kind,text){$("#syncDot").className="dot"+(kind?" "+kind:"");if(kind==="busy")return;const t=kind==="on"?"gespeichert":/^(Nicht|Sync|Server)/.test(text)?"offline · speichert später":/Gerät/.test(text)?"lokal gespeichert":text;const el=$("#syncText");if(el.textContent!==t)el.textContent=t;el.parentElement.title=text}
+function setSync(kind,text){if(!kind&&/Gerät/.test(text))kind="on";$("#syncDot").className="dot"+(kind?" "+kind:"");$("#sync").classList.toggle("ok",kind==="on");if(kind==="busy")return;const t=kind==="on"?"✓ gespeichert":/^(Nicht|Sync|Server)/.test(text)?"offline · speichert später":text;const el=$("#syncText");if(el.textContent!==t)el.textContent=t;el.parentElement.title=text}
 function touch(part,slow){
   store[part].updatedAt=Date.now(); dirty[part]=true; saveLocal();
   if(!db) return;
