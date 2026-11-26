@@ -692,7 +692,7 @@ function buildQueue(){
   return shuffle(due).concat(fresh).map(x=>x.id);
 }
 function cardsGoalMet(){if(!cardsReady)return false;const st=cardStats();return st.due===0&&(newLeft()===0||!newAvail())}
-function nextIvl(id,failed){const s=store.srs.c[id];if(failed)return 1;if(!s)return 2;return Math.max((s[1]||0)+1,Math.round((s[1]||1)*2.5))}
+function nextIvl(id,failed){const s=store.srs.c[id];if(failed)return 1;if(!s)return 2;const m=Math.max(1.3,2.5-0.3*(s[2]||0));return Math.max((s[1]||0)+1,Math.round((s[1]||1)*m))}
 function gradeCard(id,known,extra){
   const t=dayNum(todayKey()), c=store.srs.c, s=c[id];
   if(!s&&!extra){const k=todayKey();state.newCount[k]=(state.newCount[k]||0)+1}
@@ -711,10 +711,11 @@ function gradeCard(id,known,extra){
 const ivlText=d=>d<=1?"morgen":d<30?"in "+d+" Tagen":"in "+Math.round(d/30)+" Mon.";
 
 /* ---------- error pool (spaced repetition for mistakes) ---------- */
-const ERR_STEPS=[1,3,7];
+const ERR_STEPS=[1,3,7,14,21,30];
+const errNeed=m=>Math.min(6,2+(m||1));
 function errDueN(k){const t=dayNum(k||todayKey());return Object.values(state.errs).filter(e=>e[0]<=t).length}
-function errWrong(key){if(!key)return;state.errs[key]=[dayNum(todayKey())+1,0]}
-function errRight(key){const e=state.errs[key];if(!e)return;const box=e[1]+1;if(box>=ERR_STEPS.length){delete state.errs[key]}else state.errs[key]=[dayNum(todayKey())+ERR_STEPS[box],box]}
+function errWrong(key){if(!key)return;const e=state.errs[key];state.errs[key]=[dayNum(todayKey())+1,0,((e&&e[2])||0)+1]}
+function errRight(key){const e=state.errs[key];if(!e)return;const box=e[1]+1;if(box>=errNeed(e[2])){delete state.errs[key]}else state.errs[key]=[dayNum(todayKey())+ERR_STEPS[box],box,e[2]||1]}
 
 /* ---------- quiz items ---------- */
 
@@ -806,6 +807,7 @@ function quizNext(){
   if(sub.needCopy&&!sub.copyOk) return;
   const s=sub, idx=s.queue.shift();
   if(s.res==="bad") s.queue.splice(Math.min(3,s.queue.length),0,idx);
+  else if(s.wrong.has(idx)){s.twice=s.twice||new Set();if(!s.twice.has(idx)){s.twice.add(idx);s.queue.splice(Math.min(6,s.queue.length),0,idx)}}
   s.typed="";s.res=null;s.pick=null;s.showTr=false;s.choiceFor=null;s.needCopy=false;s.copyOk=false;s.copy="";
   if(!s.queue.length) finishQuiz();
   render();
@@ -879,15 +881,16 @@ function exNext(override){
   s.queue.shift();
   const firstTry=!s.failed.has(id);
   gradeCard(id,ok,!!s.practice);
-  if(ok){s.done++; if(firstTry) wrongRight(id)} else {s.queue.splice(Math.min(3,s.queue.length),0,id);s.fails++;addWrong(id)}
+  if(ok){s.done++; if(firstTry) wrongRight(id); else {s.twice=s.twice||new Set();if(!s.twice.has(id)){s.twice.add(id);s.queue.splice(Math.min(6,s.queue.length),0,id)}}} else {s.queue.splice(Math.min(3,s.queue.length),0,id);s.fails++;addWrong(id)}
   s.ex=null; render();
 }
 function mergeCustom(){if(!cardsReady)return;Object.entries(state.custom||{}).forEach(([id,v])=>{if(!CARD_BY[id]){const c={id,deck:"v",front:v[0],back:v[1],info:"Eigene",pack:"eigene"};CARDS.push(c);CARD_BY[id]=c}})}
-function markCard(id){if(!id||!CARD_BY[id])return;const t=dayNum(todayKey()),c=store.srs.c,v=c[id];c[id]=[t,0,v?(v[2]||0):0,v?(v[3]||0):0];state.wrong=state.wrong||{};state.wrong[id]={days:[]};touch("srs");touch("prog")}
+function markCard(id){if(!id||!CARD_BY[id])return;const t=dayNum(todayKey()),c=store.srs.c,v=c[id];c[id]=[t,0,v?(v[2]||0):0,v?(v[3]||0):0];state.wrong=state.wrong||{};const pw=(state.wrong||{})[id];state.wrong[id]={days:[],misses:(pw&&pw.misses)||1};touch("srs");touch("prog")}
 function unmarkCard(id){if(state.wrong&&state.wrong[id]){delete state.wrong[id];touch("prog")}}
 function saveWord(word,tr){const es=word.toLowerCase();let id=null;for(const c of CARDS){if(c.deck!=="g"&&cleanEs(esOf(c)).toLowerCase().replace(/^(el|la|los|las) /,"")===es){id=c.id;break}}if(!id){id="u_"+es;state.custom=state.custom||{};state.custom[id]=[es,tr];mergeCustom()}markCard(id);return id}
-function addWrong(id){if(!id||!CARD_BY[id])return;state.wrong=state.wrong||{};state.wrong[id]={days:[]};touch("prog")}
-function wrongRight(id){const w=(state.wrong||{})[id];if(!w)return;const k=todayKey();if(!w.days.includes(k))w.days.push(k);if(w.days.length>=3)delete state.wrong[id];touch("prog")}
+function addWrong(id){if(!id||!CARD_BY[id])return;state.wrong=state.wrong||{};const pw=state.wrong[id];state.wrong[id]={days:[],misses:((pw&&pw.misses)||0)+1};touch("prog")}
+const wrongNeed=w=>Math.min(5,2+((w&&w.misses)||1));
+function wrongRight(id){const w=(state.wrong||{})[id];if(!w)return;const k=todayKey();if(!w.days.includes(k))w.days.push(k);if(w.days.length>=wrongNeed(w))delete state.wrong[id];touch("prog")}
 const wrongIds=()=>Object.keys(state.wrong||{}).filter(id=>CARD_BY[id]);
 function gapCardId(it){if(!it||!it.answers||!it.set)return null;const id="lk_"+it.answers[0].toLowerCase();return CARD_BY[id]?id:null}
 function gapContext(es){const e=es.toLowerCase();for(const set of ["fut","cond","subj","foto","rolle"]){const items=CLOZE[set].items;for(let i=0;i<items.length;i++){if(items[i][1][0].toLowerCase()===e)return {text:items[i][0],de:(TRANS[set]||[])[i]||""}}}return null}
@@ -895,7 +898,7 @@ function vExercise(s,c){
   if(!s.ex||s.ex.id!==c.id) s.ex=buildEx(c);
   const ex=s.ex, again=s.failed.has(c.id), srs=store.srs.c[c.id];
   const wr=(state.wrong||{})[c.id];
-  const pill=`<span class="pill ${srs&&!again&&!wr?"":"acc"}">${esc(c.info)}${again?" · nochmal":wr?" · falsch-Stapel "+wr.days.length+"/3":srs?"":" · neu"}</span>`;
+  const pill=`<span class="pill ${srs&&!again&&!wr?"":"acc"}">${esc(c.info)}${again?" · nochmal":wr?" · falsch-Stapel "+wr.days.length+"/"+wrongNeed(wr)+((wr.misses||1)>1?" · "+wr.misses+"× falsch":""):srs?"":" · neu"}</span>`;
   const sp="";
   const fb=ex.res?(ex.res==="ok"?`<div class="fb ok">Richtig</div>`:ex.res==="accent"?`<div class="fb warn">Richtig, Akzent: <b>${esc(ex.answer)}</b></div>`:`<div class="fb bad">Richtig ist: <b>${esc(ex.t==="mc"?ex.answer:ex.answer)}</b>${ex.t==="type"&&synOf(esOf(c)).length>1?` <span class="small">(auch: ${esc(synOf(esOf(c)).filter(x=>x!==esOf(c)).join(", "))})</span>`:""}</div>`):"";
   let body="";
@@ -1369,7 +1372,7 @@ function vQuiz(backLabel){
   <div class="row between"><h2>${esc(s.title)}</h2><div class="row" style="gap:6px"><button class="ghost" data-go="${s.again}">↺ Von vorn</button>${comboPill()}<span class="pill num">${doneN} / ${n} richtig</span></div></div>
   ${whatBox(s.what,s.goal)}
   <div class="bar"><i style="width:${doneN/n*100}%"></i></div>
-  <div class="card stack"><div class="row between">${isAgain?`<span class="pill acc">nochmal</span>`:"<span></span>"}${it.key&&!it.tense?`<button class="ghost flag" data-flagq>${s.flagged&&s.flagged.has(idx)?"★ markiert":"☆ markieren"}</button>`:""}</div>${prompt}${it.de?(s.res||s.showTr?`<p class="small tr">${esc(it.de)}</p>`:`<button class="ghost" style="align-self:flex-start;min-height:32px;padding:2px 8px" data-showtr>Übersetzung zeigen</button>`):""}${body}</div></div>`;
+  <div class="card stack"><div class="row between">${isAgain?`<span class="pill acc">nochmal</span>`:(it.key&&state.errs[it.key]&&(state.errs[it.key][2]||0)>1)?`<span class="pill acc">${state.errs[it.key][2]}× falsch</span>`:(s.twice&&s.twice.has(idx))?`<span class="pill">zur Sicherheit nochmal</span>`:"<span></span>"}${it.key&&!it.tense?`<button class="ghost flag" data-flagq>${s.flagged&&s.flagged.has(idx)?"★ markiert":"☆ markieren"}</button>`:""}</div>${prompt}${it.de?(s.res||s.showTr?`<p class="small tr">${esc(it.de)}</p>`:`<button class="ghost" style="align-self:flex-start;min-height:32px;padding:2px 8px" data-showtr>Übersetzung zeigen</button>`):""}${body}</div></div>`;
 }
 function itemText(it){if(it.tense)return `${it.v}, ${PERS[it.p]}, ${TENSE_NAME[it.tense]}: ${it.answers[0]}`;if(it.mc)return it.text.replace("___",it.mc[it.correct]);return it.text.replace("___",it.answers[0])}
 function speakBlock(kind){
